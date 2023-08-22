@@ -1,0 +1,2 @@
+# rust-analyzer lsp doesn't respect my neovim configuration. So I'm manually setting this here.
+tab_spaces = 2
