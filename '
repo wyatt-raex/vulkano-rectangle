@@ -98,7 +98,6 @@ fn main() {
     Vertex {
       position: [0.5, 0.5],
     },
-    
   ];
   let vertex_buffer = Buffer::from_iter(
     &memory_allocator,
@@ -150,132 +149,6 @@ fn main() {
 
   // Graphics Pipeline creation
   let pipeline = create_graphics_pipeline(&device, &swapchain, &vs, &fs);
-
-  let mut viewport = Viewport {
-    origin: [0.0, 0.0],
-    dimensions: [0.0, 0.0],
-    depth_range: 0.0..1.0,
-  };
-
-  let mut attachment_image_views = window_size_dependent_setup(&images, &mut viewport);
-
-  let command_buffer_allocator =
-    StandardCommandBufferAllocator::new(device.clone(), Default::default());
-
-  let mut recreate_swapchain = false;
-  let mut previous_frame_end = Some(sync::now(device.clone()).boxed());
-
-  event_loop.run(move |event, _, control_flow| {
-    match event {
-      Event::WindowEvent {
-        event: WindowEvent::CloseRequested,
-        ..
-      } => {
-        *control_flow = ControlFlow::Exit;
-      }
-
-      Event::WindowEvent {
-        event: WindowEvent::Resized(_),
-        ..
-      } => {
-        recreate_swapchain = true;
-      }
-
-      Event::RedrawEventsCleared => {
-        previous_frame_end.as_mut().unwrap().cleanup_finished();
-
-        if recreate_swapchain {
-          let window = surface.object().unwrap().downcast_ref::<Window>().unwrap();
-
-          let (new_swapchain, new_images) = 
-            match swapchain.recreate(SwapchainCreateInfo{
-              image_extent: window.inner_size().into(),
-              ..swapchain.create_info()
-            }) {
-              Ok(r) => r,
-              Err(SwapchainCreationError::ImageExtentNotSupported { .. }) => return,
-              Err(e) => panic!("failed to recreate swapchain: {e}"),
-            };
-
-          swapchain = new_swapchain;
-
-          attachment_image_views = window_size_dependent_setup(&new_images, &mut viewport);
-          recreate_swapchain = false;
-        }
-
-        let (image_index, suboptimal, acquire_future) =
-          match acquire_next_image(swapchain.clone(), None) {
-            Ok(r) => r,
-            Err(AcquireError::OutOfDate) => {
-              recreate_swapchain = true;
-              return;
-            }
-            Err(e) => panic!("failed to acquire next image: {e}"),
-          };
-
-        if suboptimal { recreate_swapchain = true; }
-
-        let mut builder = AutoCommandBufferBuilder::primary(
-          &command_buffer_allocator,
-          queue.queue_family_index(),
-          CommandBufferUsage::OneTimeSubmit,
-        )
-        .unwrap();
-  
-        builder
-          .begin_rendering(RenderingInfo {
-            color_attachments: vec![Some(RenderingAttachmentInfo {
-              load_op: LoadOp::Clear,
-              store_op: StoreOp::Store,
-              clear_value: Some([0.0, 0.0, 1.0, 1.0].into()),
-              ..RenderingAttachmentInfo::image_view(
-                attachment_image_views[image_index as usize].clone(),
-              )
-            })],
-
-            ..Default::default()
-          })
-          .unwrap()
-          .set_viewport(0, [viewport.clone()])
-          .bind_pipeline_graphics(pipeline.clone())
-          .bind_vertex_buffers(0, vertex_buffer.clone())
-          .draw(vertex_buffer.len() as u32, 1, 0, 0)
-          .unwrap()
-          .end_rendering()
-          .unwrap();
-
-        let command_buffer = builder.build().unwrap();
-
-        let future = previous_frame_end
-          .take()
-          .unwrap()
-          .join(acquire_future)
-          .then_execute(queue.clone(), command_buffer)
-          .unwrap()
-          .then_swapchain_present(
-            queue.clone(),
-            SwapchainPresentInfo::swapchain_image_index(swapchain.clone(), image_index),
-          )
-          .then_signal_fence_and_flush();
-
-        match future {
-          Ok(future) => {
-            previous_frame_end = Some(future.boxed());
-          }
-          Err(FlushError::OutOfDate) => {
-            recreate_swapchain = true;
-            previous_frame_end = Some(sync::now(device.clone()).boxed());
-          }
-          Err(e) => {
-            println!("failed to flush future: {e}");
-            previous_frame_end = Some(sync::now(device.clone()).boxed());
-          }
-        }
-      }
-
-      _ => (),
-    }
-  });
 }
 
 
@@ -297,8 +170,8 @@ fn create_graphics_pipeline(
   }
 
   // We want a Rectangle using 4 Vertices. Use `TriangleStrip` instead of `TriangleList`
-  let input_assembly_state = InputAssemblyState::new().topology(PrimitiveTopology::TriangleStrip);
-  //input_assembly_state.topology(PrimitiveTopology::TriangleStrip);
+  let input_assembly_state = InputAssemblyState::new();
+  input_assembly_state.topology(PrimitiveTopology::TriangleStrip);
 
   GraphicsPipeline::start()
     .render_pass(PipelineRenderingCreateInfo {
@@ -447,20 +320,4 @@ fn pick_physical_device(
       }
     })
     .expect("no suitable physical device found")
-}
-
-
-fn window_size_dependent_setup(
-  images: &[Arc<SwapchainImage>],
-  viewport: &mut Viewport,
-)
--> Vec<Arc<ImageView<SwapchainImage>>> 
-{
-  let dimensions = images[0].dimensions().width_height();
-  viewport.dimensions = [dimensions[0] as f32, dimensions[1] as f32];
-
-  images
-    .iter()
-    .map(|image| ImageView::new_default(image.clone()).unwrap())
-    .collect::<Vec<_>>()
 }
