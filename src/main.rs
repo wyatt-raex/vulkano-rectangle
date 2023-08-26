@@ -85,20 +85,27 @@ fn main() {
     position: [f32; 2],
   }
 
+  let v1 = Vertex {
+    position: [-0.5, 0.5],
+  };
+  let v2 = Vertex {
+    position: [-0.5, -0.5],
+  };
+  let v3 = Vertex {
+    position: [0.5, -0.5],
+  };
+  let v4 = Vertex {
+    position: [0.5, 0.5],
+  };
+
+  /*
+  *   1---4
+  *   |   |
+  *   |   |
+  *   2---3
+  */
   let vertices = [
-    Vertex {
-      position: [-0.5, 0.5],
-    },
-    Vertex {
-      position: [-0.5, -0.5],
-    },
-    Vertex {
-      position: [0.5, -0.5],
-    },
-    Vertex {
-      position: [0.5, 0.5],
-    },
-    
+    v1, v2, v4, v3
   ];
   let vertex_buffer = Buffer::from_iter(
     &memory_allocator,
@@ -203,85 +210,79 @@ fn main() {
           recreate_swapchain = false;
         }
 
-        draw();
+        let (image_index, suboptimal, acquire_future) =
+          match acquire_next_image(swapchain.clone(), None) {
+            Ok(r) => r,
+            Err(AcquireError::OutOfDate) => {
+              recreate_swapchain = true;
+              return;
+            }
+            Err(e) => panic!("failed to acquire next image: {e}"),
+          };
 
+        if suboptimal { recreate_swapchain = true; }
+
+        let mut builder = AutoCommandBufferBuilder::primary(
+          &command_buffer_allocator,
+          queue.queue_family_index(),
+          CommandBufferUsage::OneTimeSubmit,
+        )
+        .unwrap();
+  
+        builder
+          .begin_rendering(RenderingInfo {
+            color_attachments: vec![Some(RenderingAttachmentInfo {
+              load_op: LoadOp::Clear,
+              store_op: StoreOp::Store,
+              clear_value: Some([0.0, 0.0, 1.0, 1.0].into()),
+              ..RenderingAttachmentInfo::image_view(
+                attachment_image_views[image_index as usize].clone(),
+              )
+            })],
+
+            ..Default::default()
+          })
+          .unwrap()
+          .set_viewport(0, [viewport.clone()])
+          .bind_pipeline_graphics(pipeline.clone())
+          .bind_vertex_buffers(0, vertex_buffer.clone())
+          .draw(vertex_buffer.len() as u32, 1, 0, 0)
+          .unwrap()
+          .end_rendering()
+          .unwrap();
+
+        let command_buffer = builder.build().unwrap();
+
+        let future = previous_frame_end
+          .take()
+          .unwrap()
+          .join(acquire_future)
+          .then_execute(queue.clone(), command_buffer)
+          .unwrap()
+          .then_swapchain_present(
+            queue.clone(),
+            SwapchainPresentInfo::swapchain_image_index(swapchain.clone(), image_index),
+          )
+          .then_signal_fence_and_flush();
+
+        match future {
+          Ok(future) => {
+            previous_frame_end = Some(future.boxed());
+          }
+          Err(FlushError::OutOfDate) => {
+            recreate_swapchain = true;
+            previous_frame_end = Some(sync::now(device.clone()).boxed());
+          }
+          Err(e) => {
+            println!("failed to flush future: {e}");
+            previous_frame_end = Some(sync::now(device.clone()).boxed());
+          }
+        }
       }
 
       _ => (),
     }
   });
-}
-
-
-fn draw() {
-  let (image_index, suboptimal, acquire_future) =
-    match acquire_next_image(swapchain.clone(), None) {
-      Ok(r) => r,
-      Err(AcquireError::OutOfDate) => {
-        recreate_swapchain = true;
-        return;
-      }
-      Err(e) => panic!("failed to acquire next image: {e}"),
-    };
-
-  if suboptimal { recreate_swapchain = true; }
-
-  let mut builder = AutoCommandBufferBuilder::primary(
-    &command_buffer_allocator,
-    queue.queue_family_index(),
-    CommandBufferUsage::OneTimeSubmit,
-  )
-  .unwrap();
-
-  builder
-    .begin_rendering(RenderingInfo {
-      color_attachments: vec![Some(RenderingAttachmentInfo {
-        load_op: LoadOp::Clear,
-        store_op: StoreOp::Store,
-        clear_value: Some([0.0, 0.0, 1.0, 1.0].into()),
-        ..RenderingAttachmentInfo::image_view(
-          attachment_image_views[image_index as usize].clone(),
-        )
-      })],
-
-      ..Default::default()
-    })
-    .unwrap()
-    .set_viewport(0, [viewport.clone()])
-    .bind_pipeline_graphics(pipeline.clone())
-    .bind_vertex_buffers(0, vertex_buffer.clone())
-    .draw(vertex_buffer.len() as u32, 1, 0, 0)
-    .unwrap()
-    .end_rendering()
-    .unwrap();
-
-  let command_buffer = builder.build().unwrap();
-
-  let future = previous_frame_end
-    .take()
-    .unwrap()
-    .join(acquire_future)
-    .then_execute(queue.clone(), command_buffer)
-    .unwrap()
-    .then_swapchain_present(
-      queue.clone(),
-      SwapchainPresentInfo::swapchain_image_index(swapchain.clone(), image_index),
-    )
-    .then_signal_fence_and_flush();
-
-  match future {
-    Ok(future) => {
-      previous_frame_end = Some(future.boxed());
-    }
-    Err(FlushError::OutOfDate) => {
-      recreate_swapchain = true;
-      previous_frame_end = Some(sync::now(device.clone()).boxed());
-    }
-    Err(e) => {
-      println!("failed to flush future: {e}");
-      previous_frame_end = Some(sync::now(device.clone()).boxed());
-    }
-  }
 }
 
 
