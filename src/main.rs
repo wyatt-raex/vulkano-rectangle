@@ -174,6 +174,7 @@ fn main() {
 
   event_loop.run(move |event, _, control_flow| {
     match event {
+      // Close
       Event::WindowEvent {
         event: WindowEvent::CloseRequested,
         ..
@@ -181,6 +182,7 @@ fn main() {
         *control_flow = ControlFlow::Exit;
       }
 
+      // Resize
       Event::WindowEvent {
         event: WindowEvent::Resized(_),
         ..
@@ -188,9 +190,12 @@ fn main() {
         recreate_swapchain = true;
       }
 
+      // Render
       Event::RedrawEventsCleared => {
+        // Cleanup unused resources
         previous_frame_end.as_mut().unwrap().cleanup_finished();
 
+        // Recreate swapchain if window resize or any errors occured
         if recreate_swapchain {
           let window = surface.object().unwrap().downcast_ref::<Window>().unwrap();
 
@@ -222,6 +227,7 @@ fn main() {
 
         if suboptimal { recreate_swapchain = true; }
 
+        // Begin rendering
         let mut builder = AutoCommandBufferBuilder::primary(
           &command_buffer_allocator,
           queue.queue_family_index(),
